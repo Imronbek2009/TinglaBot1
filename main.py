@@ -39,8 +39,8 @@ async def main():
     dp.include_router(user_router)
 
     print("=" * 60)
-    print("🚀 UNIVERSAL MEDIA, STORY, SHAZAM & 2GB BOT (v6) ISHGA TUSHDI!")
-    print("📝 Admin Text Editor | 📸 @username Story | 🎵 Shazam | 🎬 2 GB Video")
+    print("🚀 TINGLA — UNIVERSAL MEDIA, STORY, SHAZAM & 2GB BOT (v7) ISHGA TUSHDI!")
+    print("▶️ YouTube Anti-Bot Bypass | 📸 @username Story | 🎵 Shazam | 📝 Text Editor")
     print("=" * 60)
 
     await bot.delete_webhook(drop_pending_updates=True)

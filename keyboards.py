@@ -7,7 +7,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from texts import TEXT_DEFINITIONS
 
-# Toza, jiddiy va chiroyli menyu tugmalari
 BTN_STORIES = "📸 Story ko'rish"
 BTN_MUSIC = "🎵 Qo'shiq qidirish"
 BTN_PLATFORMS = "🔥 Platformalar"
@@ -28,10 +27,6 @@ MENU_LABELS = {
     "menu_settings": ("⚙️ Sozlamalar", BTN_SETTINGS),
     "menu_help": ("ℹ️ Yordam", BTN_HELP),
 }
-
-# =========================================================================
-# TELEGRAM NATIVE RANGLI TUGMALAR (GREEN / BLUE / RED) TIZIMI
-# =========================================================================
 
 COLOR_PROFILES = [
     {
@@ -141,10 +136,6 @@ def ibtn(text: str, callback_data: str | None = None, url: str | None = None, co
     return InlineKeyboardButton(text=text, callback_data=callback_data or "noop", **kwargs)
 
 
-# =========================================================================
-# ASOSIY REPLY KLAVIATURA
-# =========================================================================
-
 def main_menu_kb(is_admin_user: bool = False, menu_cfg: dict | None = None) -> ReplyKeyboardMarkup:
     if menu_cfg is None:
         menu_cfg = {k: True for k in MENU_LABELS}
@@ -185,10 +176,6 @@ def main_menu_kb(is_admin_user: bool = False, menu_cfg: dict | None = None) -> R
         input_field_placeholder="Havola yoki @username yuboring..."
     )
 
-
-# =========================================================================
-# INLINE KLAVIATURALAR
-# =========================================================================
 
 def story_platform_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
@@ -371,7 +358,7 @@ def admin_panel_kb(force_sub: str, maintenance: str) -> InlineKeyboardMarkup:
         ibtn(text="🎛 Bo'limlarni boshqarish (Menyu UI)", callback_data="adm:ui_menus", color="green")
     )
     builder.row(
-        ibtn(text="👁 Story sozlamalari (Insta & TG @username)", callback_data="adm:ig_settings", color="blue")
+        ibtn(text="👁 Story va Cookie sozlamalari (Insta / YouTube / TG)", callback_data="adm:ig_settings", color="blue")
     )
     builder.row(
         ibtn(text="📊 Statistika", callback_data="adm:stats", color="blue"),
@@ -474,11 +461,25 @@ def admin_ui_menus_kb(menu_cfg: dict) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def admin_ig_settings_kb(has_session: bool, has_cookies_file: bool, has_tg_user: bool = False) -> InlineKeyboardMarkup:
+def admin_ig_settings_kb(
+    has_session: bool,
+    has_cookies_file: bool,
+    has_tg_user: bool = False,
+    has_yt_cookies: bool = False
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     s_status = "Ulangan" if has_session else "Kiritilmagan"
     c_status = "Yuklangan" if has_cookies_file else "Yuklanmagan"
+    yt_status = "Yuklangan" if has_yt_cookies else "Avto-Bypass"
     tg_status = "Ulangan" if has_tg_user else "Ixtiyoriy"
+
+    builder.row(
+        ibtn(
+            text=f"▶️ YouTube cookies.txt yuklash ({yt_status})",
+            callback_data="adm:upload_yt_cookies",
+            color="green" if has_yt_cookies else "blue"
+        )
+    )
     builder.row(
         ibtn(
             text=f"📸 Instagram sessionid kiritish ({s_status})",
@@ -500,9 +501,9 @@ def admin_ig_settings_kb(has_session: bool, has_cookies_file: bool, has_tg_user:
             color="green" if has_tg_user else "blue"
         )
     )
-    if has_session or has_cookies_file or has_tg_user:
+    if has_session or has_cookies_file or has_tg_user or has_yt_cookies:
         builder.row(
-            ibtn(text="🗑 Story sessiyalarni tozalash", callback_data="adm:clear_ig_session", color="red")
+            ibtn(text="🗑 Barcha Cookie va sessiyalarni tozalash", callback_data="adm:clear_ig_session", color="red")
         )
     builder.row(
         ibtn(text="⬅️ Orqaga", callback_data="adm:home", color="blue")

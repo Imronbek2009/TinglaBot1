@@ -38,11 +38,6 @@ def _strip_or_remap_markup(markup):
 
 
 async def color_safe_request_middleware(make_request, bot: Bot, method):
-    '''
-    1) Agar Bot API serveri rangli tugma parametrini qabul qilmasa, avtomatik keyingi profilga o'tadi.
-    2) Agar Admin paneldan tahrirlangan matnda yopilmagan HTML teg (<b> va h.k.) bo'lsa,
-       xatolik bermasdan avtomatik tozalab yuboradi!
-    '''
     html_fallback_tried = False
     while True:
         try:
@@ -50,7 +45,6 @@ async def color_safe_request_middleware(make_request, bot: Bot, method):
         except TelegramBadRequest as e:
             err_msg = str(e).lower()
 
-            # 1-holat: HTML teg xatoligi ("can't parse entities")
             if "can't parse entities" in err_msg and not html_fallback_tried:
                 html_fallback_tried = True
                 if hasattr(method, "text") and method.text:
@@ -61,7 +55,6 @@ async def color_safe_request_middleware(make_request, bot: Bot, method):
                     method.parse_mode = None
                 continue
 
-            # 2-holat: Rangli tugma parametri mos kelmasa
             has_markup = getattr(method, "reply_markup", None) is not None
             if (
                 has_markup

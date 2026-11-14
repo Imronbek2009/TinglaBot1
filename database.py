@@ -92,7 +92,6 @@ async def init_db():
             "daily_limit": "0",
             "ig_sessionid": DEFAULT_IG_SESSIONID,
             "tg_user_session_string": "",
-            # Foydalanuvchi menyusi bo'limlarini yoqish/o'chirish (1 = yoqilgan, 0 = o'chirilgan)
             "menu_stories": "1",
             "menu_music": "1",
             "menu_platforms": "1",
@@ -102,7 +101,6 @@ async def init_db():
             "menu_settings": "1",
             "menu_help": "1",
         }
-        # Barcha standart matnlarni settings jadvaliga qo'shamiz
         for t_key, (_, _, def_val) in TEXT_DEFINITIONS.items():
             default_settings[t_key] = def_val
 
@@ -144,10 +142,6 @@ async def set_setting(key: str, value: str):
 
 
 async def get_bot_text(key: str, **kwargs) -> str:
-    '''
-    Bazadan (yoki standart ro'yxatdan) matnni olib, ichidagi {o'zgaruvchilarni}
-    HTML-xavfsiz qilib formatlab qaytaradi.
-    '''
     default_tpl = TEXT_DEFINITIONS[key][2] if key in TEXT_DEFINITIONS else ""
     raw_tpl = await get_setting(key, default_tpl)
     if not kwargs:

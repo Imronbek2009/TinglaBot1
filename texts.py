@@ -1,7 +1,6 @@
 import html
 import re
 
-# Har bir matn kaliti: (Admin paneldagi nomi, Qo'llaniladigan o'zgaruvchilar, Standart matn)
 TEXT_DEFINITIONS: dict[str, tuple[str, str, str]] = {
     "txt_start": (
         "👋 /start salomlashish matni",
@@ -154,7 +153,7 @@ TEXT_DEFINITIONS: dict[str, tuple[str, str, str]] = {
         "{error} - Xatolik tafsiloti",
         "❌ <b>Yuklab olishda xatolik yuz berdi!</b>\n\n"
         "🔍 <b>Sabablar bo'lishi mumkin:</b>\n"
-        "• Profil yopiq (Private) — yopiq profil uchun Admin paneldan Instagram sessionid ulang;\n"
+        "• Profil yopiq (Private) — yopiq profil uchun Admin paneldan Cookie ulang;\n"
         "• Havola noto'g'ri yoki o'chirilgan;\n"
         "• Texnik ma'lumot: <code>{error}</code>"
     ),
@@ -189,11 +188,6 @@ TEXT_DEFINITIONS: dict[str, tuple[str, str, str]] = {
 
 
 def safe_format_html(template: str, **kwargs) -> str:
-    '''
-    Dinamik o'zgaruvchilarni (masalan: ism, sarlavha, xato matni) HTML xavfsiz qilib
-    (<, >, & belgilarini qochirib) shablonga joylashtiradi.
-    Agar admin shablondan biror {var} ni olib tashlagan bo'lsa ham xato bermaydi!
-    '''
     result = template
     for k, v in kwargs.items():
         safe_val = html.escape(str(v if v is not None else ""))
@@ -202,7 +196,6 @@ def safe_format_html(template: str, **kwargs) -> str:
 
 
 def strip_html_tags(text: str) -> str:
-    '''Agar admin xato HTML teg yozib qo'ysa va Telegram qabul qilmasa, teglarni tozalab beradi.'''
     if not text:
         return ""
     cleaned = re.sub(r"<[^>]+>", "", text)

@@ -13,16 +13,26 @@ from concurrent.futures import ThreadPoolExecutor
 import yt_dlp
 
 from config import (
-    DOWNLOAD_DIR, MAX_FILESIZE, BOT_API_MAX_SIZE, IG_COOKIES_FILE,
+    DOWNLOAD_DIR, MAX_FILESIZE, BOT_API_MAX_SIZE,
+    IG_COOKIES_FILE, YT_COOKIES_FILE,
     BOT_TOKEN, TG_API_ID, TG_API_HASH, TELETHON_BOT_SESSION
 )
 from database import get_setting
 
 URL_REGEX = re.compile(r"(https?://[^\s]+)")
 USERNAME_REGEX = re.compile(r"^@?([A-Za-z0-9._]{3,32})$")
+YT_ID_REGEX = re.compile(r"(?:v=|youtu\.be/|shorts/|embed/)([A-Za-z0-9_-]{11})")
 
 _mtproto_bot_client = None
 _mtproto_lock = asyncio.Lock()
+
+# YouTube "Sign in to confirm you're not a bot" ni chetlab o'tuvchi maxsus client sozlamasi
+YT_BYPASS_EXTRACTOR_ARGS = {
+    "youtube": {
+        "player_client": ["android_vr", "tv_embedded", "mweb", "ios", "web_embedded"],
+        "player_skip": ["webpage", "configs"],
+    }
+}
 
 
 def extract_url(text: str) -> str | None:
@@ -39,6 +49,11 @@ def extract_clean_username(text: str) -> str | None:
     if " " in t or "/" in t:
         return None
     m = USERNAME_REGEX.match(t)
+    return m.group(1) if m else None
+
+
+def extract_yt_video_id(url: str) -> str | None:
+    m = YT_ID_REGEX.search(url)
     return m.group(1) if m else None
 
 
@@ -237,7 +252,10 @@ async def recognize_song_shazam(media_path: str | None = None, source_url: str |
                     "no_warnings": True,
                     "noplaylist": True,
                     "max_filesize": 25 * 1024 * 1024,
+                    "extractor_args": YT_BYPASS_EXTRACTOR_ARGS,
                 }
+                if os.path.exists(YT_COOKIES_FILE) and ("youtube.com" in source_url.lower() or "youtu.be" in source_url.lower()):
+                    opts["cookiefile"] = YT_COOKIES_FILE
                 ff = get_ffmpeg_path()
                 if ff:
                     opts["ffmpeg_location"] = ff
@@ -262,8 +280,11 @@ async def recognize_song_shazam(media_path: str | None = None, source_url: str |
                     }
                     return fn, meta
 
-            temp_downloaded, metadata_guess = await asyncio.to_thread(_fetch_small_audio)
-            media_path = temp_downloaded
+            try:
+                temp_downloaded, metadata_guess = await asyncio.to_thread(_fetch_small_audio)
+                media_path = temp_downloaded
+            except Exception:
+                pass
 
         if media_path and os.path.exists(media_path):
             sample_path = await asyncio.to_thread(_extract_audio_sample_ffmpeg, media_path, 15)
@@ -336,20 +357,24 @@ async def recognize_song_shazam(media_path: str | None = None, source_url: str |
 # =========================================================================
 
 def _sync_get_info(url: str, ig_sessionid: str = "") -> dict:
+    u_low = url.lower()
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "extract_flat": False,
+        "extractor_args": YT_BYPASS_EXTRACTOR_ARGS,
     }
     ffmpeg_path = get_ffmpeg_path()
     if ffmpeg_path:
         ydl_opts["ffmpeg_location"] = ffmpeg_path
-    if "instagram.com" in url.lower():
+    if "instagram.com" in u_low:
         if os.path.exists(IG_COOKIES_FILE):
             ydl_opts["cookiefile"] = IG_COOKIES_FILE
         elif ig_sessionid:
             ydl_opts["http_headers"] = {"Cookie": f"sessionid={ig_sessionid}"}
+    elif ("youtube.com" in u_low or "youtu.be" in u_low) and os.path.exists(YT_COOKIES_FILE):
+        ydl_opts["cookiefile"] = YT_COOKIES_FILE
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -380,7 +405,11 @@ def _sync_search_youtube(query: str, max_results: int = 5) -> list:
         "no_warnings": True,
         "extract_flat": True,
         "noplaylist": True,
+        "extractor_args": YT_BYPASS_EXTRACTOR_ARGS,
     }
+    if os.path.exists(YT_COOKIES_FILE):
+        ydl_opts["cookiefile"] = YT_COOKIES_FILE
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
         entries = info.get("entries", [])
@@ -582,7 +611,7 @@ def _sync_download_telegram_story(query_or_url: str) -> list[dict]:
     raise RuntimeError(
         f"@{username} profilida ochiq Telegram Story topilmadi.\n"
         "💡 Barcha shaxsiy profillarning Telegram storylarini faqat @username bilan yuklash uchun "
-        "Admin Panel -> «👁 Story sozlamalari» bo'limidan Telegram StringSession ulashingiz mumkin!"
+        "Admin Panel -> «👁 Story va Cookie sozlamalari» bo'limidan Telegram StringSession ulashingiz mumkin!"
     )
 
 
@@ -721,7 +750,7 @@ def _sync_download_instagram_stories(username_or_url: str, ig_sessionid: str = "
         if not decoded_session and not os.path.exists(IG_COOKIES_FILE):
             raise RuntimeError(
                 f"@{username} ning Instagram Story'larini yuklash uchun Admin Panel -> "
-                "«👁 Story sozlamalari» bo'limidan Instagram sessionid (yoki cookies.txt) kiriting!"
+                "«👁 Story va Cookie sozlamalari» bo'limidan Instagram sessionid (yoki cookies.txt) kiriting!"
             )
         raise RuntimeError(
             f"@{username} profilida faol story topilmadi yoki akkaunt yopiq.\n"
@@ -746,8 +775,81 @@ async def download_stories(platform_code: str, query_or_url: str) -> list[dict]:
 
 
 # =========================================================================
-# ASOSIY VIDEO (2 GB GACHA), RASM VA AUDIO YUKLASH TIZIMI
+# ASOSIY VIDEO (2 GB GACHA), RASM VA AUDIO YUKLASH TIZIMI + YOUTUBE BYPASS
 # =========================================================================
+
+def _fallback_youtube_piped_api(url: str, unique_id: str, media_type: str = "video") -> dict:
+    '''
+    Agar server IP manzili YouTube tomonidan qattiq bloklangan bo'lsa va cookie bo'lmasa,
+    zaxira sifatida Piped / Invidious public API tugunlaridan to'g'ridan-to'g'ri stream oladi.
+    '''
+    vid_id = extract_yt_video_id(url)
+    if not vid_id:
+        raise RuntimeError("YouTube video ID topilmadi.")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    }
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.moomoo.me",
+        "https://api.piped.private.coffee",
+    ]
+
+    for base_api in piped_instances:
+        try:
+            req = urllib.request.Request(f"{base_api}/streams/{vid_id}", headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+            title = data.get("title") or "YouTube Media"
+            uploader = data.get("uploader") or "YouTube"
+            duration = int(data.get("duration") or 0)
+
+            if media_type == "audio":
+                streams = data.get("audioStreams", [])
+                if not streams:
+                    continue
+                chosen = streams[0]
+                stream_url = chosen.get("url")
+                ext = ".m4a"
+            else:
+                # 720p yoki 360p combined video+audio stream qidiramiz
+                v_streams = [s for s in data.get("videoStreams", []) if not s.get("videoOnly", True)]
+                if not v_streams:
+                    continue
+                chosen = v_streams[0]
+                stream_url = chosen.get("url")
+                ext = ".mp4"
+
+            if not stream_url:
+                continue
+
+            filepath = os.path.join(DOWNLOAD_DIR, f"{unique_id}_{vid_id}{ext}")
+            dl_req = urllib.request.Request(stream_url, headers=headers)
+            with urllib.request.urlopen(dl_req, timeout=45) as dl_resp, open(filepath, "wb") as out_f:
+                shutil.copyfileobj(dl_resp, out_f)
+
+            if os.path.exists(filepath) and os.path.getsize(filepath) > 1024:
+                return {
+                    "filepath": filepath,
+                    "title": title,
+                    "uploader": uploader,
+                    "track": None,
+                    "artist": uploader,
+                    "duration": duration,
+                    "thumbnail": data.get("thumbnailUrl"),
+                    "width": None,
+                    "height": None,
+                    "is_photo": False,
+                }
+        except Exception:
+            continue
+
+    raise RuntimeError("Zaxira serverlardan ham yuklab bo'lmadi.")
+
 
 def _fallback_direct_scrape(url: str, unique_id: str) -> dict:
     headers = {
@@ -843,7 +945,12 @@ def _build_ydl_opts(url: str, outtmpl: str, media_type: str, quality: str, ffmpe
     if ffmpeg_path:
         ydl_opts["ffmpeg_location"] = ffmpeg_path
 
-    if is_ig:
+    if is_yt:
+        # YouTube anti-bot tekshiruvini ("Sign in to confirm you're not a bot") chetlab o'tish!
+        ydl_opts["extractor_args"] = YT_BYPASS_EXTRACTOR_ARGS
+        if os.path.exists(YT_COOKIES_FILE):
+            ydl_opts["cookiefile"] = YT_COOKIES_FILE
+    elif is_ig:
         if os.path.exists(IG_COOKIES_FILE):
             ydl_opts["cookiefile"] = IG_COOKIES_FILE
         elif ig_sessionid:
@@ -856,7 +963,7 @@ def _build_ydl_opts(url: str, outtmpl: str, media_type: str, quality: str, ffmpe
                 ),
                 "Cookie": f"sessionid={decoded_s};",
             }
-    elif not is_yt:
+    else:
         ydl_opts["http_headers"] = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -918,66 +1025,92 @@ def _locate_downloaded_file(ydl, info: dict, media_type: str, ffmpeg_path: str |
     return filename
 
 
+def _extract_result_dict(ydl, info: dict, media_type: str, ffmpeg_path: str | None) -> dict:
+    if "entries" in info and info["entries"]:
+        info = info["entries"][0]
+    filename = _locate_downloaded_file(ydl, info, media_type, ffmpeg_path)
+    ext = os.path.splitext(filename)[1].lower()
+    is_photo = ext in (".jpg", ".jpeg", ".png", ".webp")
+    return {
+        "filepath": filename,
+        "title": info.get("title") or "Media",
+        "uploader": info.get("uploader") or info.get("channel") or "MediaBot",
+        "track": info.get("track"),
+        "artist": info.get("artist"),
+        "duration": int(info.get("duration") or 0),
+        "thumbnail": info.get("thumbnail"),
+        "width": info.get("width"),
+        "height": info.get("height"),
+        "is_photo": is_photo,
+    }
+
+
 def _sync_download(url: str, media_type: str = "video", quality: str = "best", ig_sessionid: str = "") -> dict:
     unique_id = uuid.uuid4().hex[:10]
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{unique_id}_%(id)s.%(ext)s")
     ffmpeg_path = get_ffmpeg_path()
+    is_yt = ("youtube.com" in url.lower()) or ("youtu.be" in url.lower())
 
     ydl_opts = _build_ydl_opts(url, outtmpl, media_type, quality, ffmpeg_path, ig_sessionid)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            if "entries" in info and info["entries"]:
-                info = info["entries"][0]
-            filename = _locate_downloaded_file(ydl, info, media_type, ffmpeg_path)
-
-            ext = os.path.splitext(filename)[1].lower()
-            is_photo = ext in (".jpg", ".jpeg", ".png", ".webp")
-
-            return {
-                "filepath": filename,
-                "title": info.get("title") or "Media",
-                "uploader": info.get("uploader") or info.get("channel") or "MediaBot",
-                "track": info.get("track"),
-                "artist": info.get("artist"),
-                "duration": int(info.get("duration") or 0),
-                "thumbnail": info.get("thumbnail"),
-                "width": info.get("width"),
-                "height": info.get("height"),
-                "is_photo": is_photo,
-            }
+            return _extract_result_dict(ydl, info, media_type, ffmpeg_path)
 
     except Exception as first_err:
         err_text = str(first_err)
 
-        if "Requested format is not available" in err_text or "format" in err_text.lower():
-            try:
-                fallback_opts = _build_ydl_opts(url, outtmpl, media_type, quality, ffmpeg_path, ig_sessionid)
-                if media_type == "audio":
-                    fallback_opts["format"] = "bestaudio/best"
-                else:
-                    fallback_opts["format"] = "bestvideo+bestaudio/best" if ffmpeg_path else "best"
-                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    if "entries" in info and info["entries"]:
-                        info = info["entries"][0]
-                    filename = _locate_downloaded_file(ydl, info, media_type, ffmpeg_path)
-                    return {
-                        "filepath": filename,
-                        "title": info.get("title") or "Media",
-                        "uploader": info.get("uploader") or info.get("channel") or "MediaBot",
-                        "track": info.get("track"),
-                        "artist": info.get("artist"),
-                        "duration": int(info.get("duration") or 0),
-                        "thumbnail": info.get("thumbnail"),
-                        "width": info.get("width"),
-                        "height": info.get("height"),
-                        "is_photo": False,
+        # 1-ZAXIRA: YouTube "Sign in to confirm you're not a bot" yoki format xatosida
+        if is_yt:
+            # 1A: TV / Android VR embedded clientlar bilan qayta urinib ko'ramiz
+            for client_list in (["tv_embedded", "android_vr"], ["mweb", "ios", "tv"]):
+                try:
+                    retry_opts = _build_ydl_opts(url, outtmpl, media_type, quality, ffmpeg_path, ig_sessionid)
+                    retry_opts["extractor_args"] = {
+                        "youtube": {
+                            "player_client": client_list,
+                            "player_skip": ["webpage", "configs"],
+                        }
                     }
+                    retry_opts["format"] = "ba/b" if media_type == "audio" else ("bv*+ba/b" if ffmpeg_path else "b")
+                    with yt_dlp.YoutubeDL(retry_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        return _extract_result_dict(ydl, info, media_type, ffmpeg_path)
+                except Exception:
+                    pass
+
+            # 1B: Kompyuterdagi lokal brauzer cookie'laridan avtomatik foydalanish (Edge, Firefox, Brave, Chrome)
+            if not os.path.exists(YT_COOKIES_FILE):
+                for browser_name in ("edge", "firefox", "brave", "opera", "chrome"):
+                    try:
+                        b_opts = _build_ydl_opts(url, outtmpl, media_type, quality, ffmpeg_path, ig_sessionid)
+                        b_opts["cookiesfrombrowser"] = (browser_name,)
+                        b_opts["format"] = "ba/b" if media_type == "audio" else ("bv*+ba/b" if ffmpeg_path else "b")
+                        with yt_dlp.YoutubeDL(b_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                            return _extract_result_dict(ydl, info, media_type, ffmpeg_path)
+                    except Exception:
+                        continue
+
+            # 1C: Piped Public API orqali to'g'ridan-to'g'ri tortish
+            try:
+                return _fallback_youtube_piped_api(url, unique_id, media_type)
             except Exception:
                 pass
 
+        # 2-ZAXIRA: Format mos kelmagan boshqa saytlar uchun
+        if "Requested format is not available" in err_text or "format" in err_text.lower():
+            try:
+                fallback_opts = _build_ydl_opts(url, outtmpl, media_type, quality, ffmpeg_path, ig_sessionid)
+                fallback_opts["format"] = "bestaudio/best" if media_type == "audio" else ("bestvideo+bestaudio/best" if ffmpeg_path else "best")
+                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    return _extract_result_dict(ydl, info, media_type, ffmpeg_path)
+            except Exception:
+                pass
+
+        # 3-ZAXIRA: Pinterest rasm pinlari yoki "No video formats found"
         if (
             "No video formats found" in err_text
             or "pinterest." in url.lower()

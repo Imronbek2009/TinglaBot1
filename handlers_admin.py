@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import DB_PATH, IG_COOKIES_FILE
+from config import DB_PATH, IG_COOKIES_FILE, YT_COOKIES_FILE
 from texts import TEXT_DEFINITIONS
 from database import (
     is_admin, get_stats, get_setting, set_setting,
@@ -33,6 +33,7 @@ class AdminStates(StatesGroup):
     waiting_new_admin = State()
     waiting_ig_session = State()
     waiting_ig_cookies_file = State()
+    waiting_yt_cookies_file = State()
     waiting_tg_session = State()
     waiting_custom_text = State()
 
@@ -44,6 +45,7 @@ async def render_admin_panel(target: Message | CallbackQuery):
     daily_limit = await get_setting("daily_limit", "0")
     ig_sess = await get_setting("ig_sessionid", "")
     has_ig = bool(ig_sess) or os.path.exists(IG_COOKIES_FILE)
+    has_yt = os.path.exists(YT_COOKIES_FILE)
     limit_str = "Cheklovsiz ♾" if daily_limit == "0" else f"{daily_limit} ta / kun"
 
     text = (
@@ -51,7 +53,8 @@ async def render_admin_panel(target: Message | CallbackQuery):
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🔐 <b>Majburiy obuna:</b> {'Yoqilgan' if force_sub == '1' else 'O`chirilgan'}\n"
         f"🛠 <b>Texnik ishlar rejimi:</b> {'Yoqilgan' if maintenance == '1' else 'O`chirilgan'}\n"
-        f"👁 <b>Instagram Story / Yopiq profil:</b> {'Ulangan' if has_ig else 'Ulanmagan'}\n"
+        f"▶️ <b>YouTube Anti-Bot himoya:</b> {'Cookie ulangan ✅' if has_yt else 'Avto-Bypass faol ⚡'}\n"
+        f"👁 <b>Instagram Story / Yopiq profil:</b> {'Ulangan ✅' if has_ig else 'Ulanmagan'}\n"
         f"📦 <b>Maksimal video hajmi:</b> 2 GB (2000 MB)\n"
         f"⏳ <b>Kunlik bepul limit:</b> {limit_str}\n"
         f"📝 <b>Ostki matn (Watermark):</b> <code>{html.escape(watermark[:60])}</code>\n"
@@ -169,8 +172,6 @@ async def process_custom_text_save(message: Message, state: FSMContext):
     if not raw_text.strip():
         return await message.answer("❌ Iltimos, matn yuboring yoki /cancel bosing!")
 
-    # Agar admin HTML teglarni qo'lda yozgan bo'lsa (<b>, <i>, <code>), raw_text ni olamiz;
-    # agar Telegram'ning o'zida formatlagan bo'lsa (entities), message.html_text ni olamiz!
     if any(tag in raw_text for tag in ("<b>", "</b>", "<i>", "</i>", "<code>", "</code>", "<blockquote>", "<a ")):
         new_value = raw_text
     else:
@@ -219,7 +220,7 @@ async def cb_admin_txt_reset_all(call: CallbackQuery):
 
 
 # =========================================================================
-# FOYDALANUVCHI BO'LIMLARINI (SAQLANGANLAR, SOZLAMALAR VA B.) YOQISH/O'CHIRISH
+# FOYDALANUVCHI BO'LIMLARINI YOQISH/O'CHIRISH
 # =========================================================================
 
 @admin_router.callback_query(F.data == "adm:ui_menus")
@@ -277,7 +278,7 @@ async def cb_refresh_reply_kb(call: CallbackQuery):
 
 
 # =========================================================================
-# INSTAGRAM VA TELEGRAM STORY (@USERNAME ORQALI) SOZLAMALARI
+# YOUTUBE COOKIE, INSTAGRAM STORY VA TELEGRAM STORY SOZLAMALARI
 # =========================================================================
 
 @admin_router.callback_query(F.data == "adm:ig_settings")
@@ -289,23 +290,56 @@ async def cb_admin_ig_settings(call: CallbackQuery, state: FSMContext):
     tg_sess = await get_setting("tg_user_session_string", "")
     has_sess = bool(ig_sess)
     has_file = os.path.exists(IG_COOKIES_FILE)
+    has_yt = os.path.exists(YT_COOKIES_FILE)
     has_tg = bool(tg_sess)
 
     text = (
-        "👁 <b>STORY (@USERNAME ORQALI) VA YOPIQ PROFILLAR SOZLAMASI</b>\n"
+        "👁 <b>YOUTUBE COOKIE VA STORY (@USERNAME) SOZLAMALARI</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"▶️ <b>YouTube cookies.txt:</b> {'Yuklangan ✅' if has_yt else 'Avto-Bypass (Android VR / TV) ⚡'}\n"
         f"📸 <b>Instagram sessionid:</b> {'Ulangan ✅' if has_sess else 'Kiritilmagan ❌'}\n"
         f"📂 <b>ig_cookies.txt fayli:</b> {'Yuklangan ✅' if has_file else 'Yuklanmagan ⚪'}\n"
         f"✈️ <b>Telegram StringSession:</b> {'Ulangan ✅' if has_tg else 'Ixtiyoriy ⚪'}\n\n"
-        "💡 <b>Qanday ishlaydi?</b>\n"
-        "1️⃣ <b>Instagram Story (@username):</b> Shu yerga bitta Instagram <code>sessionid</code> (yoki <code>cookies.txt</code>) ulasangiz, foydalanuvchilar shunchaki <code>@username</code> yozib <b>ochiq va yopiq</b> profillar storylarini yuklab oladi!\n"
-        "2️⃣ <b>Telegram Story (@username):</b> Kanal va ochiq profillar storysi avtomatik ishlaydi. Shaxsiy (user) akkauntlarning ham storylarini faqat <code>@username</code> bilan tortish uchun Telethon <code>StringSession</code> kiritishingiz mumkin."
+        "💡 <b>Qo'llanma:</b>\n"
+        "1️⃣ <b>YouTube («Sign in to confirm you're not a bot»):</b> Bot ichida maxsus <code>Android VR / TV</code> avto-bypass yoqilgan. Agar hosting serveringizda YouTube baribir cookie so'rasa, brauzerdan <i>«Get cookies.txt LOCALLY»</i> kengaytmasi orqali olingan <code>cookies.txt</code> faylni <b>«▶️ YouTube cookies.txt yuklash»</b> tugmasi orqali tashlang!\n"
+        "2️⃣ <b>Instagram Story (@username):</b> Instagram <code>sessionid</code> yoki <code>cookies.txt</code> ulasangiz, ochiq va yopiq profillar storylari <code>@username</code> orqali yuklanadi."
     )
     await call.message.edit_text(
         text,
-        reply_markup=admin_ig_settings_kb(has_sess, has_file, has_tg),
+        reply_markup=admin_ig_settings_kb(has_sess, has_file, has_tg, has_yt),
         parse_mode="HTML"
     )
+
+
+@admin_router.callback_query(F.data == "adm:upload_yt_cookies")
+async def cb_upload_yt_cookies(call: CallbackQuery, state: FSMContext):
+    if not await is_admin(call.from_user.id):
+        return
+    await state.set_state(AdminStates.waiting_yt_cookies_file)
+    await call.message.edit_text(
+        "▶️ <b>YOUTUBE COOKIES.TXT FAYLINI YUKLASH</b>\n\n"
+        "1. Kompyuter brauzerida (Chrome/Edge) yangi Incognito oynada YouTube'ga kiring.\n"
+        "2. <i>«Get cookies.txt LOCALLY»</i> kengaytmasi yordamida <code>cookies.txt</code> faylini yuklab oling.\n"
+        "3. O'sha <code>.txt</code> faylni shu yerga Document (fayl) sifatida yuboring:\n\n"
+        "Bekor qilish uchun /cancel yozing.",
+        parse_mode="HTML"
+    )
+
+
+@admin_router.message(AdminStates.waiting_yt_cookies_file)
+async def process_yt_cookies_file(message: Message, state: FSMContext, bot: Bot):
+    if message.text == "/cancel":
+        await state.clear()
+        return await render_admin_panel(message)
+
+    if not message.document:
+        return await message.answer("❌ Iltimos, YouTube cookies.txt faylini Document (fayl) sifatida yuboring yoki /cancel bosing!")
+
+    file_info = await bot.get_file(message.document.file_id)
+    await bot.download_file(file_info.file_path, destination=YT_COOKIES_FILE)
+    await state.clear()
+    await message.answer("✅ <b>YouTube cookies.txt fayli muvaffaqiyatli saqlandi! Endi barcha YouTube videolar cheklovsiz yuklanadi.</b>", parse_mode="HTML")
+    await render_admin_panel(message)
 
 
 @admin_router.callback_query(F.data == "adm:set_ig_session")
@@ -379,7 +413,7 @@ async def process_ig_cookies_file(message: Message, state: FSMContext, bot: Bot)
     file_info = await bot.get_file(message.document.file_id)
     await bot.download_file(file_info.file_path, destination=IG_COOKIES_FILE)
     await state.clear()
-    await message.answer("✅ <b>cookies.txt fayli muvaffaqiyatli saqlandi!</b>", parse_mode="HTML")
+    await message.answer("✅ <b>Instagram cookies.txt fayli muvaffaqiyatli saqlandi!</b>", parse_mode="HTML")
     await render_admin_panel(message)
 
 
@@ -389,12 +423,13 @@ async def cb_clear_ig_session(call: CallbackQuery):
         return
     await set_setting("ig_sessionid", "")
     await set_setting("tg_user_session_string", "")
-    if os.path.exists(IG_COOKIES_FILE):
-        try:
-            os.remove(IG_COOKIES_FILE)
-        except Exception:
-            pass
-    await call.answer("🗑 Barcha Story sessiya va cookie fayllari tozalandi!", show_alert=True)
+    for fpath in (IG_COOKIES_FILE, YT_COOKIES_FILE):
+        if os.path.exists(fpath):
+            try:
+                os.remove(fpath)
+            except Exception:
+                pass
+    await call.answer("🗑 Barcha Cookie va Story sessiya fayllari tozalandi!", show_alert=True)
     await render_admin_panel(call)
 
 

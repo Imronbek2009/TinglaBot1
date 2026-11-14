@@ -1,9 +1,9 @@
 @echo off
-title Universal Media, Story, Shazam & 2GB Bot Pro v6
+title Tingla - Universal Media, Story, Shazam & 2GB Bot Pro v7
 echo ============================================================
-echo   KUTUBXONALAR (SHAZAMIO, TELETHON, YT-DLP) TEKSHIRILMOQDA...
+echo   YT-DLP VA KUTUBXONALAR ENG SO'NGGI VERSIYAGA YANGILANMOQDA...
 echo ============================================================
-pip install -U aiogram yt-dlp imageio-ffmpeg telethon shazamio
+pip install -U yt-dlp aiogram imageio-ffmpeg telethon shazamio
 pip install -r requirements.txt
 echo.
 python -u main.py
